@@ -2,7 +2,6 @@ import binascii
 import hashlib
 from microdot import Request, Response
 from microdot.microdot import MUTED_SOCKET_ERRORS, print_exception
-from microdot.helpers import wraps
 
 
 class WebSocketError(Exception):
@@ -193,7 +192,6 @@ async def websocket_upgrade(request):
 
 
 def websocket_wrapper(f, upgrade_function):
-    @wraps(f)
     async def wrapper(request, *args, **kwargs):
         ws = await upgrade_function(request)
         try:

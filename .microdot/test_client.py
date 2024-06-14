@@ -77,7 +77,7 @@ class TestClient:
     The following example shows how to create a test client for an application
     and send a test request::
 
-        from microdot import Microdot
+        from microdot_asyncio import Microdot
 
         app = Microdot()
 
@@ -141,17 +141,7 @@ class TestClient:
             cookie_options = cookie_value.split(';')
             delete = False
             for option in cookie_options[1:]:
-                if option.strip().lower().startswith(
-                        'max-age='):  # pragma: no cover
-                    _, age = option.strip().split('=', 1)
-                    try:
-                        age = int(age)
-                    except ValueError:  # pragma: no cover
-                        age = 0
-                    if age <= 0:
-                        delete = True
-                        break
-                elif option.strip().lower().startswith('expires='):
+                if option.strip().lower().startswith('expires='):
                     _, e = option.strip().split('=', 1)
                     # this is a very limited parser for cookie expiry
                     # that only detects a cookie deletion request when

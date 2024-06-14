@@ -1,46 +1,50 @@
+import json
 import network
+import uasyncio
 from microdot import Microdot, Request, cors
-from microdot.microdot import MultiDict
+from microdot.websocket import with_websocket, WebSocket
+import ubinascii
 
 import camera
 
-ap_if: network.WLAN = network.WLAN(network.AP_IF)
-ap_if.active(True)
-ap_if.config(
-    essid='Páteční kamera',
-    password='qwertyuiop',
-    authmode=network.AUTH_WPA_WPA2_PSK
-)
+print('Connecting to Pátečník WIFI...')
+sta_if: network.WLAN = network.WLAN(network.STA_IF)
+sta_if.active(True)
+sta_if.connect('Pátečník', 'qwertyuiop')
+while not sta_if.isconnected():
+    pass
+print('Connected')
 
-print(f'ip: {ap_if.ifconfig()[0]}')
+brain_ip: str = '192.168.4.1'
+ip: str = '192.168.4.69'
+ifconfig: tuple[str, str, str, str] = (ip, '255.255.255.0', brain_ip, brain_ip)
+sta_if.ifconfig(ifconfig)
+print(f'ip: {sta_if.ifconfig()[0]}')
 
 app: Microdot = Microdot()
 cors.CORS(app, '*')
 
 
-class Stream:
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        buf: bool | bytes = camera.capture()
-        while not buf:
-            pass
-        return b'Content-Type: image/jpeg\r\n\r\n' + \
-            buf + b'\r\n--frame\r\n'
-
-    async def aclose(self):
-        print('Stopping video stream')
-
-
-@app.route('/video')
-async def video(request: Request):
-    args: MultiDict = request.args
-    resolution: str = args.get('res')
-    camera.framesize(getattr(camera, 'FRAME_' + resolution))
-    return Stream(), 200, {
-        'Content-Type': 'multipart/x-mixed-replace; boundary=frame'
-    }
+@app.route('/')
+@with_websocket
+async def video(request: Request, websocket: WebSocket):
+    print('established connection')
+    message = await websocket.receive()
+    print(message)
+    while True:
+        await uasyncio.sleep(1 / 50)
+        image: bytes | bool = False
+        while not image:
+            image = camera.capture()
+        base64: str = ubinascii.b2a_base64(image, newline=False).decode('utf-8')
+        base64 = 'data:image/jpg;base64, ' + base64
+        response: dict = {
+            'endpoint': 'live-feed',
+            'data': {
+                'image': base64
+            }
+        }
+        await websocket.send(json.dumps(response))
 
 
 camera.deinit()
@@ -49,6 +53,6 @@ camera.init(
     format=camera.JPEG,
     fb_location=camera.PSRAM
 )
-camera.framesize(camera.FRAME_HD)
+camera.framesize(camera.FRAME_CIF)
 
 app.run(port=80)

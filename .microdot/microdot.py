@@ -8,6 +8,7 @@ servers for MicroPython and standard Python.
 import asyncio
 import io
 import json
+import re
 import time
 
 try:
@@ -598,7 +599,7 @@ class Response:
             else:  # pragma: no cover
                 http_cookie += '; Expires=' + time.strftime(
                     '%a, %d %b %Y %H:%M:%S GMT', expires.timetuple())
-        if max_age is not None:
+        if max_age:
             http_cookie += '; Max-Age=' + str(max_age)
         if secure:
             http_cookie += '; Secure'
@@ -616,10 +617,10 @@ class Response:
 
         :param cookie: The cookie's name.
         :param kwargs: Any cookie opens and flags supported by
-                       ``set_cookie()`` except ``expires`` and ``max_age``.
+                       ``set_cookie()`` except ``expires``.
         """
         self.set_cookie(cookie, '', expires='Thu, 01 Jan 1970 00:00:01 GMT',
-                        max_age=0, **kwargs)
+                        **kwargs)
 
     def complete(self):
         if isinstance(self.body, bytes) and \
@@ -797,9 +798,8 @@ class Response:
 class URLPattern():
     def __init__(self, url_pattern):
         self.url_pattern = url_pattern
-        self.segments = []
-        self.regex = None
-        pattern = ''
+        self.pattern = ''
+        self.args = []
         use_regex = False
         for segment in url_pattern.lstrip('/').split('/'):
             if segment and segment[0] == '<':
@@ -811,82 +811,41 @@ class URLPattern():
                 else:
                     type_ = 'string'
                     name = segment
-                parser = None
                 if type_ == 'string':
-                    parser = self._string_segment
-                    pattern += '/([^/]+)'
+                    pattern = '[^/]+'
                 elif type_ == 'int':
-                    parser = self._int_segment
-                    pattern += '/(-?\\d+)'
+                    pattern = '-?\\d+'
                 elif type_ == 'path':
-                    use_regex = True
-                    pattern += '/(.+)'
+                    pattern = '.+'
                 elif type_.startswith('re:'):
-                    use_regex = True
-                    pattern += '/({pattern})'.format(pattern=type_[3:])
+                    pattern = type_[3:]
                 else:
                     raise ValueError('invalid URL segment type')
-                self.segments.append({'parser': parser, 'name': name,
-                                      'type': type_})
+                use_regex = True
+                self.pattern += '/({pattern})'.format(pattern=pattern)
+                self.args.append({'type': type_, 'name': name})
             else:
-                pattern += '/' + segment
-                self.segments.append({'parser': self._static_segment(segment)})
+                self.pattern += '/{segment}'.format(segment=segment)
         if use_regex:
-            import re
-            self.regex = re.compile('^' + pattern + '$')
+            self.pattern = re.compile('^' + self.pattern + '$')
 
     def match(self, path):
+        if isinstance(self.pattern, str):
+            if path != self.pattern:
+                return
+            return {}
+        g = self.pattern.match(path)
+        if not g:
+            return
         args = {}
-        if self.regex:
-            g = self.regex.match(path)
-            if not g:
-                return
-            i = 1
-            for segment in self.segments:
-                if 'name' not in segment:
-                    continue
-                value = g.group(i)
-                if segment['type'] == 'int':
-                    value = int(value)
-                args[segment['name']] = value
-                i += 1
-        else:
-            if len(path) == 0 or path[0] != '/':
-                return
-            path = path[1:]
-            args = {}
-            for segment in self.segments:
-                if path is None:
-                    return
-                arg, path = segment['parser'](path)
-                if arg is None:
-                    return
-                if 'name' in segment:
-                    args[segment['name']] = arg
-            if path is not None:
-                return
+        i = 1
+        for arg in self.args:
+            value = g.group(i)
+            if arg['type'] == 'int':
+                value = int(value)
+            args[arg['name']] = value
+            i += 1
         return args
-
-    def _static_segment(self, segment):
-        def _static(value):
-            s = value.split('/', 1)
-            if s[0] == segment:
-                return '', s[1] if len(s) > 1 else None
-            return None, None
-        return _static
-
-    def _string_segment(self, value):
-        s = value.split('/', 1)
-        if len(s[0]) == 0:
-            return None, None
-        return s[0], s[1] if len(s) > 1 else None
-
-    def _int_segment(self, value):
-        s = value.split('/', 1)
-        try:
-            return int(s[0]), s[1] if len(s) > 1 else None
-        except ValueError:
-            return None, None
 
 
 class HTTPException(Exception):
@@ -1191,7 +1150,7 @@ class Microdot:
         Example::
 
             import asyncio
-            from microdot import Microdot
+            from microdot_asyncio import Microdot
 
             app = Microdot()
 
@@ -1268,7 +1227,7 @@ class Microdot:
 
         Example::
 
-            from microdot import Microdot
+            from microdot_asyncio import Microdot
 
             app = Microdot()
 
